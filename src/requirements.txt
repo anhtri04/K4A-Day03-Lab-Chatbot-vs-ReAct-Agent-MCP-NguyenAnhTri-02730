@@ -1,0 +1,10 @@
+openai>=1.0.0
+langchain-community>=0.2.0
+langchain-core>=0.2.0
+mcp>=1.0.0  # optional: only needed for full GitHub MCP tools (graceful fallback without it)
+rich>=13.0.0
+prompt_toolkit>=3.0.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+pytest>=7.0.0
+tiktoken>=0.5.0

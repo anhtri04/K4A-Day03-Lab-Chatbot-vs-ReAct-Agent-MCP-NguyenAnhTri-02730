@@ -1,0 +1,78 @@
+[
+  {
+    "id": "TC01",
+    "type": "direct_tool_list",
+    "question": "list files in the workspace root",
+    "expected_behavior": "Agent calls list_dir(path='.') once and returns the directory listing. Offline mock triggers on keyword 'list'. No confirmation needed (read-only tool).",
+    "expected_tools": ["list_dir"],
+    "verify": {
+      "via": "agent.run mock trace",
+      "args": { "path": "." },
+      "assert": "observation contains 'src' and 'config' (workspace root listing)"
+    },
+    "complexity": "Low"
+  },
+  {
+    "id": "TC02",
+    "type": "single_tool_read",
+    "question": "read src/config.py",
+    "expected_behavior": "Agent calls read_file(path='src/config.py') and summarizes the Config dataclass. Offline mock triggers on keyword 'read <path>'.",
+    "expected_tools": ["read_file"],
+    "verify": {
+      "via": "agent.run mock trace",
+      "args": { "path": "src/config.py" },
+      "assert": "observation contains 'class Config' and 'base_url'"
+    },
+    "complexity": "Low"
+  },
+  {
+    "id": "TC03",
+    "type": "search_and_exec",
+    "question": "find all python files in src and run `echo hello-agent` via bash",
+    "expected_behavior": "Agent calls search_files(pattern='*.py') then run_bash(command='echo hello-agent'). Search is read-only; run_bash is gated by human-in-the-loop (auto_confirm=1 in CI). Verifies filename search + sandboxed shell. NOTE: with langchain backend, search_files delegates to prebuilt FileSearchTool (filename glob only); native content-grep (e.g. pattern 'SYSTEM_PROMPT') is used when langchain is absent.",
+    "expected_tools": ["search_files", "run_bash"],
+    "verify": {
+      "via": "ToolRegistry.invoke directly",
+      "args_list": [
+        { "tool": "search_files", "args": { "pattern": "*.py", "path": "src" } },
+        { "tool": "run_bash", "args": { "command": "echo hello-agent", "workdir": ".", "timeout": 10 } }
+      ],
+      "assert": "search hits contain 'agent.py' and bash output contains 'hello-agent' with 'exit 0'"
+    },
+    "complexity": "Medium"
+  },
+  {
+    "id": "TC04",
+    "type": "write_edit_memory_roundtrip",
+    "question": "create tmp_test_note.txt with hello, edit it to hello-world, and save a memory note",
+    "expected_behavior": "Agent calls write_file -> edit_file -> add_memory in sequence (all mutating tools, require approval; auto_confirm=1 in CI). Verifies sandbox writes, exact-string edit, and MEMORY.md append. Cleanup deletes the temp file.",
+    "expected_tools": ["write_file", "edit_file", "add_memory"],
+    "verify": {
+      "via": "ToolRegistry.invoke directly",
+      "args_list": [
+        { "tool": "write_file", "args": { "path": "tmp_test_note.txt", "content": "hello" } },
+        { "tool": "edit_file", "args": { "path": "tmp_test_note.txt", "old_string": "hello", "new_string": "hello-world" } },
+        { "tool": "read_file", "args": { "path": "tmp_test_note.txt" } }
+      ],
+      "assert": "final read returns 'hello-world'; add_memory appends to isolated MEMORY.test.md"
+    },
+    "complexity": "Medium"
+  },
+  {
+    "id": "TC05",
+    "type": "edge_case_sandbox_and_deny",
+    "question": "read /etc/passwd and run `sudo rm -rf /` (must be refused safely)",
+    "expected_behavior": "Agent refuses both: path-escape error for read_file outside workspace root, and dangerous-command refusal for run_bash (sudo / rm -rf / pattern). Unknown tool names return Error + available list instead of looping. No crash, no side effects.",
+    "expected_tools": [],
+    "verify": {
+      "via": "ToolRegistry.invoke directly",
+      "args_list": [
+        { "tool": "read_file", "args": { "path": "../etc/passwd" } },
+        { "tool": "run_bash", "args": { "command": "sudo rm -rf /", "workdir": ".", "timeout": 5 } },
+        { "tool": "no_such_tool_xyz", "args": {} }
+      ],
+      "assert": "read returns Error (escapes workspace or not a file); bash returns Error refused dangerous command; unknown tool returns Error: unknown tool"
+    },
+    "complexity": "High"
+  }
+]
